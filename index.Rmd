@@ -1,0 +1,123 @@
+---
+title: "Analyzing Motor Trends Data"
+author: "VS"
+output: 
+  pdf_document:
+    fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+par(mfrow = c(1, 1))
+```
+
+## Executive Summary
+Our goal in this analysis is to examine the **Motor Trends** data to answer the following questions:
+1. Is an automatic or manual transmission better for MPG?
+2. Quantify the MPG difference between automatic and manual transmissions.
+
+For both of these questions, we're going to look at the relationship of `mpg` to different variables, specificially the `am` variable.
+
+The analysis below establishes the idea that `mpg` is barely, if at all, related to `am`, with a manual transmission giving a 0.177 mpg benefit over an automatic transmission, suggesting that it is entirely possible that there is in fact no relationship at all. However, the analysis also reveals that the results are confounded by the weight and number of cylinders, which have a much greater role in determining fuel efficiency than transmission type.
+
+## EDA
+Before getting into the specific details of our analysis, let's explore some of the data.
+
+```{r}
+data(mtcars)
+head(mtcars, n = 5)
+```
+
+Let's plot the fuel efficiency by transmission.
+```{r}
+with(mtcars, boxplot(mpg ~ am, 
+                     xlab="Transmission (0 = Automatic, 1 = Manual)",
+                     ylab="Fuel Efficiency (MPG)", main="Fuel Efficiency by Transmission"))
+```
+
+The boxplot shows a clear difference in fuel efficiency based on transmission type, with manual transmissions giving greater fuel efficiency than automatic transmissions.
+
+Now that we've explored some glaring relationships in the data, let's get into a more in-depth analysis.
+
+## T-Test
+The simplest (and probably the least accurate, too, in this case) way to determine whether transmission affects fuel efficiency is to perform a t-test.
+
+```{r}
+res.tt <- t.test(mpg ~ am, data = mtcars)
+```
+
+The p-value of `r res.tt$p.value` falls significantly under a 0.05 alpha level, suggesting that there is in fact a relationship between fuel efficiency and transmission type. However, there may be multiple other variables at play, so let's try some other things.
+
+## Fitting
+Let's generate a few fit models to test against each other. We'll start with a couple of basic, unlikely linear models.
+
+```{r}
+fit.full <- lm(mpg ~ ., data = mtcars)   # fit based on each other variable
+fit.tran <- lm(mpg ~ am, data = mtcars)  # fit based solely on transmission
+```
+
+We'll go ahead and print out the correlation coefficients for each variable of these two fits.
+
+```{r}
+summary(fit.full)$coef[, 1]
+summary(fit.tran)$coef[, 1]
+```
+
+Let's also look at the p-values.
+
+```{r}
+summary(fit.full)$coef[, 4]
+summary(fit.tran)$coef[, 4]
+```
+
+Assuming that the second model (which only relates transmission to fuel efficiency) is correct, the estimates suggest a "slope" of `r summary(fit.tran)$coef[2, 1]`, which would be interpreted here as a `r summary(fit.tran)$coef[2, 1]` mpg increase in cars with manual transmissions. This number agrees with our t-test from before, which also gave a mean estimate difference of `r res.tt$estimate[2] - res.tt$estimate[1]`.
+
+However, the r-squared value of this model is a mere `r summary(fit.tran)$r.sq`, so it is likely that there are other variables at play. None of the p-values in the `fit.full` estimates are significant, so we'll perform an analysis of variance to help us determine which variables matter.
+
+```{r}
+summary(aov(mpg ~ ., data = mtcars))
+```
+
+From the generated results, it appears that the `cyl`, `disp`, and `wt` variables have the most significant effects on the variance of our data. We'll therefore use a model with those three variables, along with our variable of interest - `am`.
+
+```{r}
+fit.aov <- lm(mpg ~ cyl + disp + wt + am, data = mtcars)
+summary(fit.aov)
+```
+
+This model produces an r-squared value of `r summary(fit.aov)$r.sq`, which is pretty high. The p-values for `cyl` and `wt` are under 0.05, suggesting that these variables confound the relationship between transmission type and fuel efficiency. We **could** go further and analyze different interactions between these variables, but for the sake of brevity we'll go ahead and ignore this for now. Let's create a final model that uses the two variables just selected and our variable of interest.
+
+```{r}
+fit.final <- lm(mpg ~ cyl + wt + am, data = mtcars)
+summary(fit.final)
+```
+
+Our final model then is `mpg = 39.418 - 1.510cyl - 3.125wt + 0.177am`. This suggests that the true difference in fuel efficiency is simply a 0.177 mpg benefit in manual transmission vehicles.
+
+## Uncertainty & Residuals
+As far as uncertainty is concerned, below is a 95% confidence interval for the estimates in our final model.
+
+```{r}
+t(confint(fit.final))
+```
+
+The results presented do not include zero for the `cyl` and `wt` variables, meaning that it is highly likely that there's a relationship involved there. However, the `am` variable results **do** include zero, which makes it entirely within the realm of possibility that transmission is in fact unrelated to the fuel efficiency of a vehicle.
+
+Refer to the third figure in the appendix below for residual diagnostic plots. The first one shows an essentially nonexistent trend in the residuals. The second shows a near-straight line, suggesting normality in the residuals. The other two plots essentially reinforce this information, which together establishes that the residuals suggest, for the most part, that this fit is appropriate.
+
+## Appendix
+Below are a couple of useful figures to support the analysis.
+
+```{r, fig.cap="\\label{fig:figs}Pairs plot of all variables"}
+pairs(mpg ~ ., data = mtcars)
+```
+
+```{r, fig.cap="\\label{fig:figs}Pairs plot of weight, cylinders, and transmission"}
+pairs(mpg ~ wt + cyl + am, data = mtcars)
+```
+
+```{r, fig.cap="\\label{fig:figs}Residual diagnostics"}
+par(mfrow = c(2, 2))
+plot(fit.final)
+```
+
